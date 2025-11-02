@@ -1,0 +1,26 @@
+{
+  "canisters": {
+    "legal_fee_tracker_backend": {
+      "main": "src/legal_fee_tracker_backend/main.mo",
+      "type": "motoko"
+    },
+    "legal_fee_tracker_frontend": {
+      "dependencies": [
+        "legal_fee_tracker_backend"
+      ],
+      "source": [
+        "src/legal_fee_tracker_frontend/dist"
+      ],
+      "type": "assets",
+      "workspace": "legal_fee_tracker_frontend"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}
