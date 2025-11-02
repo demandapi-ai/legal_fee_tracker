@@ -4,6 +4,10 @@
       "main": "src/legal_fee_tracker_backend/main.mo",
       "type": "motoko"
     },
+    "Engagement": {
+      "main": "src/legal_fee_tracker_backend/Engagement/engagement.mo",
+      "type": "motoko"
+    },
     "legal_fee_tracker_frontend": {
       "dependencies": [
         "legal_fee_tracker_backend"
