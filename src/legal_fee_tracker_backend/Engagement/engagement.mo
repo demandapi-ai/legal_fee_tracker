@@ -11,6 +11,10 @@ import Float "mo:base/Float";
 import Int "mo:base/Int";
 import Option "mo:base/Option";
 
+// Import other canisters for inter-canister calls
+import UserManagement "canister:UserManagement";
+import PaymentEscrow "canister:PaymentEscrow";
+
 actor EngagementCanister {
   
   // ==================== TYPE DEFINITIONS ====================
@@ -109,43 +113,49 @@ actor EngagementCanister {
 
   // ==================== STATE ====================
   
-  stable var nextEngagementId: Nat = 0;
-  stable var nextTimeEntryId: Nat = 0;
-  stable var nextDocumentId: Nat = 0;
-  stable var nextMessageId: Nat = 0;
+  private stable var nextEngagementId: Nat = 0;
+  private stable var nextTimeEntryId: Nat = 0;
+  private stable var nextDocumentId: Nat = 0;
+  private stable var nextMessageId: Nat = 0;
 
   // Stable storage for upgrades
-  stable var engagementsEntries : [(Text, Engagement)] = [];
-  stable var userEngagementsEntries : [(Principal, [Text])] = [];
+  private stable var engagementsEntries : [(Text, Engagement)] = [];
+  private stable var userEngagementsEntries : [(Principal, [Text])] = [];
 
   // Store engagements
-  let engagements = HashMap.HashMap<Text, Engagement>(
+  private var engagements = HashMap.HashMap<Text, Engagement>(
     10, 
     Text.equal, 
     Text.hash
   );
 
   // Index: Principal -> [EngagementId] for quick lookup
-  let userEngagements = HashMap.HashMap<Principal, [Text]>(
+  private var userEngagements = HashMap.HashMap<Principal, [Text]>(
     10,
     Principal.equal,
     Principal.hash
   );
 
-  // Initialize from stable storage
-  for ((k, v) in engagementsEntries.vals()) {
-    engagements.put(k, v);
-  };
-  for ((k, v) in userEngagementsEntries.vals()) {
-    userEngagements.put(k, v);
-  };
-
+  // Pre-upgrade hook - save state
   system func preupgrade() {
     engagementsEntries := Iter.toArray(engagements.entries());
     userEngagementsEntries := Iter.toArray(userEngagements.entries());
   };
 
+  // Post-upgrade hook - restore state
   system func postupgrade() {
+    engagements := HashMap.fromIter<Text, Engagement>(
+      engagementsEntries.vals(),
+      10,
+      Text.equal,
+      Text.hash
+    );
+    userEngagements := HashMap.fromIter<Principal, [Text]>(
+      userEngagementsEntries.vals(),
+      10,
+      Principal.equal,
+      Principal.hash
+    );
     engagementsEntries := [];
     userEngagementsEntries := [];
   };
@@ -208,6 +218,26 @@ actor EngagementCanister {
     // Add to indexes
     addToUserIndex(args.lawyer, engagementId);
     addToUserIndex(args.client, engagementId);
+
+    // 🔗 INTER-CANISTER CALL 1: Create escrow account
+    let escrowResult = await PaymentEscrow.createEscrowAccount(
+      engagementId,
+      args.client,
+      args.lawyer
+    );
+
+    switch (escrowResult) {
+      case (#err(e)) {
+        // Rollback: remove engagement if escrow creation fails
+        engagements.delete(engagementId);
+        return #err("Failed to create escrow: " # e);
+      };
+      case (#ok(_)) {};
+    };
+
+    // 🔗 INTER-CANISTER CALL 2: Update user engagement counts
+    let _ = await UserManagement.incrementEngagementCount(args.lawyer);
+    let _ = await UserManagement.incrementEngagementCount(args.client);
 
     #ok(engagementId)
   };
@@ -338,10 +368,21 @@ actor EngagementCanister {
 
             engagements.put(engagementId, updatedEngagement);
             
-            // Note: In production, this would trigger Payment Canister to release funds
-            // For now, we just update the spent amount
-            
-            #ok("Time entry approved - payment of " # Nat.toText(amount) # " cents released")
+            // 🔗 INTER-CANISTER CALL 3: Release payment from escrow
+            let paymentResult = await PaymentEscrow.releasePayment(
+              engagementId,
+              amount,
+              "Time entry #" # Nat.toText(entryId) # " approved - " # entry.description
+            );
+
+            switch (paymentResult) {
+              case (#err(e)) {
+                return #err("Time entry approved but payment failed: " # e);
+              };
+              case (#ok(msg)) {
+                #ok("Time entry approved and " # msg)
+              };
+            }
           };
         };
       };
@@ -433,8 +474,21 @@ actor EngagementCanister {
 
         engagements.put(engagementId, updatedEngagement);
         
-        // Note: In production, this would trigger Payment Canister
-        #ok("Milestone approved - payment of " # Nat.toText(approvedAmount) # " cents released")
+        // 🔗 INTER-CANISTER CALL 4: Release milestone payment
+        let paymentResult = await PaymentEscrow.releasePayment(
+          engagementId,
+          approvedAmount,
+          "Milestone #" # Nat.toText(milestoneId) # " approved"
+        );
+
+        switch (paymentResult) {
+          case (#err(e)) {
+            return #err("Milestone approved but payment failed: " # e);
+          };
+          case (#ok(msg)) {
+            #ok("Milestone approved and " # msg)
+          };
+        }
       };
     };
   };
@@ -537,7 +591,7 @@ actor EngagementCanister {
               };
             };
 
-            let escrowBal = if (engagement.escrowAmount > approvedAmount) {
+            let escrowBal = if (engagement.escrowAmount >= approvedAmount) {
               engagement.escrowAmount - approvedAmount
             } else { 
               0 
@@ -564,7 +618,7 @@ actor EngagementCanister {
               };
             };
 
-            let escrowBal = if (engagement.escrowAmount > approved) {
+            let escrowBal = if (engagement.escrowAmount >= approved) {
               engagement.escrowAmount - approved
             } else { 
               0 
@@ -580,13 +634,13 @@ actor EngagementCanister {
           };
 
           case (#FixedFee(config)) {
-            let pendingCalc = if (config.amount > engagement.spentAmount) {
+            let pendingCalc = if (config.amount >= engagement.spentAmount) {
               config.amount - engagement.spentAmount
             } else { 
               0 
             };
 
-            let escrowBal = if (engagement.escrowAmount > engagement.spentAmount) {
+            let escrowBal = if (engagement.escrowAmount >= engagement.spentAmount) {
               engagement.escrowAmount - engagement.spentAmount
             } else { 
               0 
@@ -625,12 +679,37 @@ actor EngagementCanister {
 
         engagements.put(engagementId, updatedEngagement);
         
-        // Note: In production, this would:
-        // 1. Verify all payments are settled
-        // 2. Refund unused escrow to client
-        // 3. Update reputation scores
-        
-        #ok("Engagement completed successfully")
+        // 🔗 INTER-CANISTER CALL 5: Update completion counts
+        let _ = await UserManagement.markEngagementCompleted(engagement.lawyer);
+        let _ = await UserManagement.markEngagementCompleted(engagement.client);
+
+        // 🔗 INTER-CANISTER CALL 6: Refund any remaining escrow balance
+        let balanceResult = await PaymentEscrow.getEscrowBalance(engagementId);
+        switch (balanceResult) {
+          case (#ok(balance)) {
+            if (balance > 0) {
+              let refundResult = await PaymentEscrow.refundToClient(
+                engagementId,
+                balance,
+                "Engagement completed - refunding unused escrow"
+              );
+              
+              switch (refundResult) {
+                case (#ok(_)) {
+                  #ok("Engagement completed and " # Nat.toText(balance) # " cents refunded to client")
+                };
+                case (#err(e)) {
+                  #ok("Engagement completed but refund failed: " # e)
+                };
+              }
+            } else {
+              #ok("Engagement completed successfully")
+            }
+          };
+          case (#err(_)) {
+            #ok("Engagement completed successfully")
+          };
+        }
       };
     };
   };
