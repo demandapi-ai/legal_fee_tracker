@@ -4,8 +4,12 @@
       "main": "src/legal_fee_tracker_backend/main.mo",
       "type": "motoko"
     },
-    "Engagement": {
+    "UserEngagement": {
       "main": "src/legal_fee_tracker_backend/Engagement/engagement.mo",
+      "type": "motoko"
+    },
+    "PaymentEscrow": {
+      "main": "src/legal_fee_tracker_backend/Escrow/escrow.mo",
       "type": "motoko"
     },
     "legal_fee_tracker_frontend": {
