@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Progress } from "@/components/ui/progress";
+import { Button } from "../components/ui/button";
+import { Card } from "../components/ui/card";
+import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "../components/ui/form";
+import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
+import { Progress } from "../components/ui/progress";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { createEngagementSchema, type CreateEngagement, type Milestone } from "@shared/schema";
+import { createEngagementSchema, type CreateEngagement, type Milestone } from "../shared/schema";
 import { useLocation } from "wouter";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency } from "../lib/utils";
 
 export default function CreateEngagement() {
   const [, setLocation] = useLocation();

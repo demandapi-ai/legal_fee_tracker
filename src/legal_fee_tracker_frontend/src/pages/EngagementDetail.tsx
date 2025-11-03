@@ -1,15 +1,15 @@
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Badge } from "../components/ui/badge";
+import { Progress } from "../components/ui/progress";
 import { Clock, DollarSign, FileText, MessageSquare, TrendingUp, Check, X, Upload, Send } from "lucide-react";
-import { StatusBadge } from "@/components/StatusBadge";
-import { useAuth } from "@/contexts/AuthContext";
-import { formatCurrency, formatDateTime, formatTimeAgo } from "@/lib/utils";
+import { StatusBadge } from "../components/StatusBadge";
+import { useAuth } from "../contexts/AuthContext";
+import { formatCurrency, formatDateTime, formatTimeAgo } from "../lib/utils";
 
 export default function EngagementDetail() {
   const { userType } = useAuth();

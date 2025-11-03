@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useParams } from "wouter";
-import { createLawyerProfileSchema, createClientProfileSchema, type CreateLawyerProfile, type CreateClientProfile } from "@shared/schema";
+import { createLawyerProfileSchema, createClientProfileSchema, type CreateLawyerProfile, type CreateClientProfile } from "@/shared/schema";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function ProfileCreate() {

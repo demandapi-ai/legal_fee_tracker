@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Clock, CheckCircle2, XCircle, Pause, AlertCircle } from "lucide-react";
-import type { EngagementStatus, PaymentRequestStatus, MilestoneStatus } from "@shared/schema";
+import type { EngagementStatus, PaymentRequestStatus, MilestoneStatus } from "@/shared/schema";
 
 interface StatusBadgeProps {
   status: EngagementStatus | PaymentRequestStatus | MilestoneStatus;

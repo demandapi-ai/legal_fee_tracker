@@ -1,9 +1,9 @@
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 import { Shield, Clock, DollarSign, Globe, FileCheck, History } from "lucide-react";
 import { useLocation } from "wouter";
-import { useAuth } from "@/contexts/AuthContext";
-import { generateMockPrincipal } from "@/lib/utils";
-import heroImage from "@assets/generated_images/Legal_trust_blockchain_hero_349d832d.png";
+import { useAuth } from "../contexts/AuthContext";
+import { generateMockPrincipal } from "../lib/utils";
+import heroImage from "../assets/Legal_trust_blockchain_hero_349d832d.png";
 
 export default function Landing() {
   const [, setLocation] = useLocation();
