@@ -11,7 +11,7 @@ import Int "mo:base/Int";
 import Blob "mo:base/Blob";
 import Option "mo:base/Option";
 
-actor PaymentEscrow {
+persistent actor PaymentEscrow {
   
   // ==================== TYPE DEFINITIONS ====================
   
@@ -73,28 +73,29 @@ actor PaymentEscrow {
   private stable var escrowAccountsEntries : [(Text, EscrowAccount)] = [];
   private stable var transactionsEntries : [(Nat, Transaction)] = [];
   private stable var paymentRequestsEntries : [(Nat, PaymentRequest)] = [];
+  private stable var userEscrowsEntries : [(Principal, [Text])] = [];
 
-  // Runtime storage
-  private var escrowAccounts = HashMap.HashMap<Text, EscrowAccount>(
+  // Runtime storage (transient - not persisted directly)
+  private transient var escrowAccounts = HashMap.HashMap<Text, EscrowAccount>(
     10,
     Text.equal,
     Text.hash
   );
 
-  private var transactions = HashMap.HashMap<Nat, Transaction>(
+  private transient var transactions = HashMap.HashMap<Nat, Transaction>(
     10,
     Nat.equal,
-    Hash.hash
+    func(n: Nat) : Hash.Hash { Text.hash(Nat.toText(n)) }
   );
 
-  private var paymentRequests = HashMap.HashMap<Nat, PaymentRequest>(
+  private transient var paymentRequests = HashMap.HashMap<Nat, PaymentRequest>(
     10,
     Nat.equal,
-    Hash.hash
+    func(n: Nat) : Hash.Hash { Text.hash(Nat.toText(n)) }
   );
 
   // Index: Principal -> [EngagementIds] for quick lookup
-  private var userEscrows = HashMap.HashMap<Principal, [Text]>(
+  private transient var userEscrows = HashMap.HashMap<Principal, [Text]>(
     10,
     Principal.equal,
     Principal.hash
@@ -106,6 +107,7 @@ actor PaymentEscrow {
     escrowAccountsEntries := Iter.toArray(escrowAccounts.entries());
     transactionsEntries := Iter.toArray(transactions.entries());
     paymentRequestsEntries := Iter.toArray(paymentRequests.entries());
+    userEscrowsEntries := Iter.toArray(userEscrows.entries());
   };
 
   system func postupgrade() {
@@ -119,18 +121,25 @@ actor PaymentEscrow {
       transactionsEntries.vals(),
       10,
       Nat.equal,
-      Hash.hash
+      func(n: Nat) : Hash.Hash { Text.hash(Nat.toText(n)) }
     );
     paymentRequests := HashMap.fromIter<Nat, PaymentRequest>(
       paymentRequestsEntries.vals(),
       10,
       Nat.equal,
-      Hash.hash
+      func(n: Nat) : Hash.Hash { Text.hash(Nat.toText(n)) }
+    );
+    userEscrows := HashMap.fromIter<Principal, [Text]>(
+      userEscrowsEntries.vals(),
+      10,
+      Principal.equal,
+      Principal.hash
     );
 
     escrowAccountsEntries := [];
     transactionsEntries := [];
     paymentRequestsEntries := [];
+    userEscrowsEntries := [];
   };
 
   // ==================== HELPER FUNCTIONS ====================
@@ -283,7 +292,7 @@ actor PaymentEscrow {
           reason
         );
 
-        // Update escrow account
+        // Update escrow account with safe subtraction
         let newBalance = if (escrow.balance >= amount) {
           escrow.balance - amount
         } else {

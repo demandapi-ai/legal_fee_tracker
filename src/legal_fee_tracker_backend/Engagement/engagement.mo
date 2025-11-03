@@ -15,7 +15,7 @@ import Option "mo:base/Option";
 import UserManagement "canister:UserManagement";
 import PaymentEscrow "canister:PaymentEscrow";
 
-actor EngagementCanister {
+persistent actor EngagementCanister {
   
   // ==================== TYPE DEFINITIONS ====================
   
@@ -122,15 +122,15 @@ actor EngagementCanister {
   private stable var engagementsEntries : [(Text, Engagement)] = [];
   private stable var userEngagementsEntries : [(Principal, [Text])] = [];
 
-  // Store engagements
-  private var engagements = HashMap.HashMap<Text, Engagement>(
+  // Store engagements - marked as transient
+  private transient var engagements = HashMap.HashMap<Text, Engagement>(
     10, 
     Text.equal, 
     Text.hash
   );
 
-  // Index: Principal -> [EngagementId] for quick lookup
-  private var userEngagements = HashMap.HashMap<Principal, [Text]>(
+  // Index: Principal -> [EngagementId] for quick lookup - marked as transient
+  private transient var userEngagements = HashMap.HashMap<Principal, [Text]>(
     10,
     Principal.equal,
     Principal.hash

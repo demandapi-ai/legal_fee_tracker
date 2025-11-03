@@ -10,7 +10,7 @@ import Nat "mo:base/Nat";
 import Float "mo:base/Float";
 import Option "mo:base/Option";
 
-actor UserManagement {
+persistent actor UserManagement {
   
   // ==================== TYPE DEFINITIONS ====================
   
@@ -89,32 +89,37 @@ actor UserManagement {
   
   private stable var nextReviewId: Nat = 0;
   
-  // Stable storage
+  // Stable storage - these persist across upgrades
   private stable var lawyerProfilesEntries : [(Principal, LawyerProfile)] = [];
   private stable var clientProfilesEntries : [(Principal, ClientProfile)] = [];
   private stable var reviewsEntries : [(Nat, Review)] = [];
   
-  // Runtime storage
-  private var lawyerProfiles = HashMap.HashMap<Principal, LawyerProfile>(
+  // Helper function for Nat hash
+  private func natHash(n: Nat) : Hash.Hash {
+    Text.hash(Nat.toText(n))
+  };
+  
+  // Runtime storage - marked as transient
+  private transient var lawyerProfiles = HashMap.HashMap<Principal, LawyerProfile>(
     10,
     Principal.equal,
     Principal.hash
   );
 
-  private var clientProfiles = HashMap.HashMap<Principal, ClientProfile>(
+  private transient var clientProfiles = HashMap.HashMap<Principal, ClientProfile>(
     10,
     Principal.equal,
     Principal.hash
   );
 
-  private var reviews = HashMap.HashMap<Nat, Review>(
+  private transient var reviews = HashMap.HashMap<Nat, Review>(
     10,
     Nat.equal,
-    Hash.hash
+    natHash
   );
 
   // Index: reviewee -> [reviewIds]
-  private var reviewsByUser = HashMap.HashMap<Principal, [Nat]>(
+  private transient var reviewsByUser = HashMap.HashMap<Principal, [Nat]>(
     10,
     Principal.equal,
     Principal.hash
@@ -145,8 +150,20 @@ actor UserManagement {
       reviewsEntries.vals(),
       10,
       Nat.equal,
-      Hash.hash
+      natHash
     );
+    
+    // Rebuild the reviewsByUser index
+    for ((reviewId, review) in reviews.entries()) {
+      switch (reviewsByUser.get(review.revieweePrincipal)) {
+        case null {
+          reviewsByUser.put(review.revieweePrincipal, [reviewId]);
+        };
+        case (?existing) {
+          reviewsByUser.put(review.revieweePrincipal, Array.append(existing, [reviewId]));
+        };
+      };
+    };
     
     lawyerProfilesEntries := [];
     clientProfilesEntries := [];
@@ -228,20 +245,27 @@ actor UserManagement {
     email: ?Text,
     jurisdiction: ?Text,
     specializations: ?[Text],
-    hourlyRate: ?Nat,
+    hourlyRate: ??Nat,
     bio: ?Text
   ) : async Result.Result<Text, Text> {
     switch (lawyerProfiles.get(msg.caller)) {
       case null { #err("Lawyer profile not found") };
       case (?profile) {
         let updatedProfile: LawyerProfile = {
-          profile with
+          principal = profile.principal;
           name = Option.get(name, profile.name);
           email = Option.get(email, profile.email);
           jurisdiction = Option.get(jurisdiction, profile.jurisdiction);
           specializations = Option.get(specializations, profile.specializations);
           hourlyRate = Option.get(hourlyRate, profile.hourlyRate);
           bio = Option.get(bio, profile.bio);
+          verified = profile.verified;
+          totalEngagements = profile.totalEngagements;
+          completedEngagements = profile.completedEngagements;
+          rating = profile.rating;
+          reviewCount = profile.reviewCount;
+          walletAddress = profile.walletAddress;
+          createdAt = profile.createdAt;
           updatedAt = Time.now();
         };
         
@@ -354,9 +378,15 @@ actor UserManagement {
       case null { #err("Client profile not found") };
       case (?profile) {
         let updatedProfile: ClientProfile = {
-          profile with
+          principal = profile.principal;
           name = Option.get(name, profile.name);
           email = Option.get(email, profile.email);
+          totalEngagements = profile.totalEngagements;
+          completedEngagements = profile.completedEngagements;
+          rating = profile.rating;
+          reviewCount = profile.reviewCount;
+          walletAddress = profile.walletAddress;
+          createdAt = profile.createdAt;
           updatedAt = Time.now();
         };
         

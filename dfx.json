@@ -12,6 +12,10 @@
       "main": "src/legal_fee_tracker_backend/Escrow/escrow.mo",
       "type": "motoko"
     },
+    "UserManagement": {
+      "main": "src/legal_fee_tracker_backend/Management/usermanagement.mo",
+      "type": "motoko"
+    },
     "legal_fee_tracker_frontend": {
       "dependencies": [
         "legal_fee_tracker_backend"
