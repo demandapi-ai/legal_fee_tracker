@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -6,123 +6,173 @@ import { Textarea } from "../components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
-import { Clock, DollarSign, FileText, MessageSquare, TrendingUp, Check, X, Upload, Send } from "lucide-react";
+import { Clock, DollarSign, FileText, MessageSquare, TrendingUp, Check, X, Upload, Send, Loader2 } from "lucide-react";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../contexts/AuthContext";
-import { formatCurrency, formatDateTime, formatTimeAgo } from "../lib/utils";
+import { formatDateTime, formatTimeAgo } from "../lib/utils";
+import { UserEngagement } from "../../../declarations/UserEngagement";
+import type { Engagement, TimeEntry, Document, Message } from "../../../declarations/UserEngagement/UserEngagement.did";
+import { useParams } from "wouter";
+import { Principal } from "@dfinity/principal";
 
 export default function EngagementDetail() {
-  const { userType } = useAuth();
+  const { id } = useParams<{ id: string }>();
+  const { principalId, identity } = useAuth();
+  const [engagement, setEngagement] = useState<Engagement | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [newTimeHours, setNewTimeHours] = useState("");
   const [newTimeDesc, setNewTimeDesc] = useState("");
   const [newMessage, setNewMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const engagement = {
-    id: "1",
-    title: "Contract Review for SaaS Agreement",
-    description: "Comprehensive review and negotiation of SaaS terms, data privacy clauses, and liability limitations.",
-    lawyer: "Sarah Johnson",
-    client: "Tech Startup Inc.",
-    status: "Active" as const,
-    engagementType: { type: "Hourly" as const, rate: 250000000000 },
-    escrowBalance: 175000000000,
-    escrowAmount: 200000000000,
-    spentAmount: 25000000000,
-    createdAt: Date.now() * 1000000 - 7 * 24 * 3600000000000,
+  const userType = engagement && principalId 
+    ? engagement.lawyer.toString() === principalId 
+      ? "Lawyer" 
+      : "Client"
+    : null;
+
+  useEffect(() => {
+    loadEngagement();
+  }, [id]);
+
+  const loadEngagement = async () => {
+    if (!id) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const actor = UserEngagement;
+      const result = await actor.getEngagement(id);
+      
+      if ('err' in result) {
+        throw new Error(result.err);
+      }
+      
+      setEngagement(result.ok);
+    } catch (err) {
+      console.error("Error loading engagement:", err);
+      setError(err instanceof Error ? err.message : "Failed to load engagement");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const timeEntries = [
-    {
-      id: 1,
-      hours: 3.5,
-      rate: 250000000000,
-      description: "Initial contract review and identification of key issues",
-      timestamp: Date.now() * 1000000 - 2 * 24 * 3600000000000,
-      approved: true,
-    },
-    {
-      id: 2,
-      hours: 5.0,
-      rate: 250000000000,
-      description: "Drafted revisions and negotiation points for data privacy section",
-      timestamp: Date.now() * 1000000 - 1 * 24 * 3600000000000,
-      approved: false,
-    },
-  ];
-
-  const transactions = [
-    {
-      id: 1,
-      type: "Deposit" as const,
-      amount: 200000000000,
-      from: "client",
-      to: "escrow",
-      timestamp: Date.now() * 1000000 - 7 * 24 * 3600000000000,
-      memo: "Initial escrow deposit",
-    },
-    {
-      id: 2,
-      type: "Release" as const,
-      amount: 25000000000,
-      from: "escrow",
-      to: "lawyer",
-      timestamp: Date.now() * 1000000 - 2 * 24 * 3600000000000,
-      memo: "Payment for approved time entry #1",
-    },
-  ];
-
-  const documents = [
-    {
-      id: 1,
-      name: "Original_SaaS_Agreement.pdf",
-      fileSize: 245000,
-      uploadedBy: "client",
-      timestamp: Date.now() * 1000000 - 7 * 24 * 3600000000000,
-    },
-    {
-      id: 2,
-      name: "Redlined_Version_v1.pdf",
-      fileSize: 289000,
-      uploadedBy: "lawyer",
-      timestamp: Date.now() * 1000000 - 3 * 24 * 3600000000000,
-    },
-  ];
-
-  const messages = [
-    {
-      id: 1,
-      sender: "lawyer",
-      content: "I've completed the initial review. There are several concerning clauses regarding data ownership that we should discuss.",
-      timestamp: Date.now() * 1000000 - 2 * 24 * 3600000000000,
-    },
-    {
-      id: 2,
-      sender: "client",
-      content: "Thanks for the quick turnaround. Can we schedule a call tomorrow to go over these points?",
-      timestamp: Date.now() * 1000000 - 2 * 24 * 3600000000000 + 3600000000000,
-    },
-  ];
-
-  const totalHours = timeEntries.reduce((sum, entry) => sum + entry.hours, 0);
-  const approvedHours = timeEntries.filter(e => e.approved).reduce((sum, entry) => sum + entry.hours, 0);
-  const pendingEntries = timeEntries.filter(e => !e.approved);
-
-  const handleAddTimeEntry = () => {
-    setNewTimeHours("");
-    setNewTimeDesc("");
+  const formatCurrency = (amount: bigint) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(Number(amount) / 100);
   };
 
-  const handleApproveTimeEntry = (entryId: number) => {
-    console.log("Approve time entry:", entryId);
+  const getEngagementRate = (): bigint => {
+    if (!engagement) return BigInt(0);
+    if ('Hourly' in engagement.engagementType) {
+      return engagement.engagementType.Hourly.rate;
+    }
+    return BigInt(0);
   };
 
-  const handleRejectTimeEntry = (entryId: number) => {
-    console.log("Reject time entry:", entryId);
+  const totalHours = engagement?.timeEntries.reduce((sum, entry) => sum + entry.hours, 0) || 0;
+  const approvedHours = engagement?.timeEntries.filter(e => e.approved).reduce((sum, entry) => sum + entry.hours, 0) || 0;
+  const pendingEntries = engagement?.timeEntries.filter(e => !e.approved) || [];
+
+  const handleAddTimeEntry = async () => {
+    if (!id || !newTimeHours || !newTimeDesc) return;
+    
+    setIsSubmitting(true);
+    try {
+      const actor = UserEngagement;
+      const result = await actor.addTimeEntry(
+        id,
+        newTimeDesc,
+        parseFloat(newTimeHours)
+      );
+      
+      if ('err' in result) {
+        throw new Error(result.err);
+      }
+      
+      setNewTimeHours("");
+      setNewTimeDesc("");
+      await loadEngagement();
+    } catch (err) {
+      console.error("Error adding time entry:", err);
+      setError(err instanceof Error ? err.message : "Failed to add time entry");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSendMessage = () => {
-    setNewMessage("");
+  const handleApproveTimeEntry = async (entryId: bigint) => {
+    if (!id) return;
+    
+    setIsSubmitting(true);
+    try {
+      const actor = UserEngagement;
+      const result = await actor.approveTimeEntry(id, entryId);
+      
+      if ('err' in result) {
+        throw new Error(result.err);
+      }
+      
+      await loadEngagement();
+    } catch (err) {
+      console.error("Error approving time entry:", err);
+      setError(err instanceof Error ? err.message : "Failed to approve time entry");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  const handleSendMessage = async () => {
+    if (!id || !newMessage.trim()) return;
+    
+    setIsSubmitting(true);
+    try {
+      const actor = UserEngagement;
+      const result = await actor.sendMessage(id, newMessage);
+      
+      if ('err' in result) {
+        throw new Error(result.err);
+      }
+      
+      setNewMessage("");
+      await loadEngagement();
+    } catch (err) {
+      console.error("Error sending message:", err);
+      setError(err instanceof Error ? err.message : "Failed to send message");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const getStatusString = (status: any): "Active" | "Completed" | "Paused" | "Cancelled" | "Disputed" => {
+    if ('Active' in status) return "Active";
+    if ('Completed' in status) return "Completed";
+    if ('Paused' in status) return "Paused";
+    if ('Cancelled' in status) return "Cancelled";
+    if ('Disputed' in status) return "Disputed";
+    return "Active";
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error || !engagement) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-destructive mb-4">{error || "Engagement not found"}</p>
+        <Button onClick={loadEngagement}>Try Again</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -132,21 +182,21 @@ export default function EngagementDetail() {
             <h1 className="text-3xl font-bold mb-2">{engagement.title}</h1>
             <p className="text-muted-foreground">{engagement.description}</p>
           </div>
-          <StatusBadge status={engagement.status} />
+          <StatusBadge status={getStatusString(engagement.status)} />
         </div>
 
         <div className="flex flex-wrap gap-6 text-sm">
           <div>
             <span className="text-muted-foreground">Lawyer:</span>
-            <span className="ml-2 font-medium">{engagement.lawyer}</span>
+            <span className="ml-2 font-medium">{engagement.lawyer.toString().slice(0, 8)}...</span>
           </div>
           <div>
             <span className="text-muted-foreground">Client:</span>
-            <span className="ml-2 font-medium">{engagement.client}</span>
+            <span className="ml-2 font-medium">{engagement.client.toString().slice(0, 8)}...</span>
           </div>
           <div>
             <span className="text-muted-foreground">Created:</span>
-            <span className="ml-2">{formatTimeAgo(engagement.createdAt)}</span>
+            <span className="ml-2">{formatTimeAgo(Number(engagement.createdAt))}</span>
           </div>
         </div>
       </div>
@@ -158,11 +208,16 @@ export default function EngagementDetail() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">{formatCurrency(engagement.escrowBalance)}</div>
+            <div className="text-2xl font-bold font-mono">
+              {formatCurrency(engagement.escrowAmount - engagement.spentAmount)}
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
               of {formatCurrency(engagement.escrowAmount)} deposited
             </p>
-            <Progress value={(engagement.escrowBalance / engagement.escrowAmount) * 100} className="mt-2" />
+            <Progress 
+              value={Number((BigInt(100) * (engagement.escrowAmount - engagement.spentAmount)) / engagement.escrowAmount)} 
+              className="mt-2" 
+            />
           </CardContent>
         </Card>
 
@@ -172,9 +227,9 @@ export default function EngagementDetail() {
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">{totalHours}</div>
+            <div className="text-2xl font-bold font-mono">{totalHours.toFixed(1)}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {approvedHours} approved
+              {approvedHours.toFixed(1)} approved
             </p>
           </CardContent>
         </Card>
@@ -187,7 +242,7 @@ export default function EngagementDetail() {
           <CardContent>
             <div className="text-2xl font-bold font-mono">{formatCurrency(engagement.spentAmount)}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {timeEntries.filter(e => e.approved).length} payments
+              {engagement.timeEntries.filter(e => e.approved).length} payments
             </p>
           </CardContent>
         </Card>
@@ -211,11 +266,15 @@ export default function EngagementDetail() {
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Engagement Type</p>
-                  <p className="font-semibold">Hourly Rate</p>
+                  <p className="font-semibold">
+                    {'Hourly' in engagement.engagementType ? 'Hourly Rate' :
+                     'FixedFee' in engagement.engagementType ? 'Fixed Fee' :
+                     'Milestone-Based'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Rate</p>
-                  <p className="font-mono font-semibold">{formatCurrency(engagement.engagementType.rate)}/hr</p>
+                  <p className="font-mono font-semibold">{formatCurrency(getEngagementRate())}/hr</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Total Deposited</p>
@@ -223,7 +282,9 @@ export default function EngagementDetail() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Remaining Balance</p>
-                  <p className="font-mono font-semibold">{formatCurrency(engagement.escrowBalance)}</p>
+                  <p className="font-mono font-semibold">
+                    {formatCurrency(engagement.escrowAmount - engagement.spentAmount)}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -261,6 +322,7 @@ export default function EngagementDetail() {
                     value={newTimeHours}
                     onChange={(e) => setNewTimeHours(e.target.value)}
                     data-testid="input-time-hours"
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div>
@@ -270,18 +332,28 @@ export default function EngagementDetail() {
                     value={newTimeDesc}
                     onChange={(e) => setNewTimeDesc(e.target.value)}
                     data-testid="input-time-description"
+                    disabled={isSubmitting}
                   />
                 </div>
                 {newTimeHours && (
                   <div className="p-4 bg-muted/30 rounded-lg">
                     <p className="text-sm text-muted-foreground mb-1">Amount to bill:</p>
                     <p className="text-xl font-mono font-semibold">
-                      {formatCurrency(parseFloat(newTimeHours) * engagement.engagementType.rate)}
+                      {formatCurrency(BigInt(Math.round(parseFloat(newTimeHours) * 100)) * getEngagementRate() / BigInt(100))}
                     </p>
                   </div>
                 )}
-                <Button onClick={handleAddTimeEntry} className="w-full" data-testid="button-add-time">
-                  <Clock className="mr-2 h-4 w-4" />
+                <Button 
+                  onClick={handleAddTimeEntry} 
+                  className="w-full" 
+                  data-testid="button-add-time"
+                  disabled={isSubmitting || !newTimeHours || !newTimeDesc}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Clock className="mr-2 h-4 w-4" />
+                  )}
                   Add Time Entry
                 </Button>
               </CardContent>
@@ -294,8 +366,8 @@ export default function EngagementDetail() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {timeEntries.map((entry) => (
-                  <div key={entry.id} className="border rounded-lg p-4">
+                {engagement.timeEntries.map((entry) => (
+                  <div key={Number(entry.id)} className="border rounded-lg p-4">
                     <div className="flex flex-wrap items-start justify-between gap-4 mb-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-2">
@@ -303,7 +375,7 @@ export default function EngagementDetail() {
                             {entry.approved ? "Approved" : "Pending"}
                           </Badge>
                           <span className="text-sm text-muted-foreground">
-                            {formatTimeAgo(entry.timestamp)}
+                            {formatTimeAgo(Number(entry.timestamp))}
                           </span>
                         </div>
                         <p className="text-sm mb-2">{entry.description}</p>
@@ -311,13 +383,17 @@ export default function EngagementDetail() {
                       <div className="text-right">
                         <p className="text-sm text-muted-foreground mb-1">Amount</p>
                         <p className="font-mono font-semibold">
-                          {formatCurrency(entry.hours * entry.rate)}
+                          {formatCurrency(BigInt(Math.round(entry.hours * 100)) * entry.rate / BigInt(100))}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-4 text-sm">
-                      <span className="text-muted-foreground">Hours: <span className="font-mono font-semibold">{entry.hours}</span></span>
-                      <span className="text-muted-foreground">Rate: <span className="font-mono">{formatCurrency(entry.rate)}/hr</span></span>
+                      <span className="text-muted-foreground">
+                        Hours: <span className="font-mono font-semibold">{entry.hours.toFixed(2)}</span>
+                      </span>
+                      <span className="text-muted-foreground">
+                        Rate: <span className="font-mono">{formatCurrency(entry.rate)}/hr</span>
+                      </span>
                     </div>
                     
                     {!entry.approved && userType === "Client" && (
@@ -326,23 +402,18 @@ export default function EngagementDetail() {
                           size="sm"
                           onClick={() => handleApproveTimeEntry(entry.id)}
                           data-testid={`button-approve-${entry.id}`}
+                          disabled={isSubmitting}
                         >
                           <Check className="mr-2 h-4 w-4" />
                           Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleRejectTimeEntry(entry.id)}
-                          data-testid={`button-reject-${entry.id}`}
-                        >
-                          <X className="mr-2 h-4 w-4" />
-                          Reject
                         </Button>
                       </div>
                     )}
                   </div>
                 ))}
+                {engagement.timeEntries.length === 0 && (
+                  <p className="text-center text-muted-foreground py-8">No time entries yet</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -361,9 +432,9 @@ export default function EngagementDetail() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {documents.map((doc) => (
+                {engagement.documents.map((doc) => (
                   <div
-                    key={doc.id}
+                    key={Number(doc.id)}
                     className="flex items-center justify-between p-3 border rounded-lg hover-elevate transition-all"
                   >
                     <div className="flex items-center gap-3">
@@ -371,7 +442,7 @@ export default function EngagementDetail() {
                       <div>
                         <p className="font-medium">{doc.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          {(doc.fileSize / 1000).toFixed(1)} KB • Uploaded by {doc.uploadedBy} • {formatTimeAgo(doc.timestamp)}
+                          {(Number(doc.fileSize) / 1024).toFixed(1)} KB • {formatTimeAgo(Number(doc.timestamp))}
                         </p>
                       </div>
                     </div>
@@ -380,63 +451,35 @@ export default function EngagementDetail() {
                     </Button>
                   </div>
                 ))}
+                {engagement.documents.length === 0 && (
+                  <p className="text-center text-muted-foreground py-8">No documents uploaded yet</p>
+                )}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="payments" className="space-y-6">
-          {userType === "Client" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Add Funds to Escrow</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Amount (USD)</label>
-                  <Input type="number" placeholder="1000" data-testid="input-deposit-amount" />
-                </div>
-                <Button className="w-full" data-testid="button-deposit">
-                  <DollarSign className="mr-2 h-4 w-4" />
-                  Deposit to Escrow
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
           <Card>
             <CardHeader>
-              <CardTitle>Transaction History</CardTitle>
+              <CardTitle>Payment Summary</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {transactions.map((tx) => (
-                  <div key={tx.id} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-full ${
-                        tx.type === "Deposit" ? "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400" :
-                        tx.type === "Release" ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400" :
-                        "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
-                      }`}>
-                        <DollarSign className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="font-medium">{tx.type}</p>
-                        <p className="text-xs text-muted-foreground">{tx.memo}</p>
-                        <p className="text-xs text-muted-foreground">{formatDateTime(tx.timestamp)}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className={`font-mono font-semibold ${
-                        tx.type === "Deposit" ? "text-blue-600 dark:text-blue-400" :
-                        tx.type === "Release" ? "text-green-600 dark:text-green-400" :
-                        "text-red-600 dark:text-red-400"
-                      }`}>
-                        {tx.type === "Deposit" ? "+" : "-"}{formatCurrency(tx.amount)}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center p-3 bg-muted/30 rounded-lg">
+                  <span className="text-sm text-muted-foreground">Total Escrow</span>
+                  <span className="font-mono font-semibold">{formatCurrency(engagement.escrowAmount)}</span>
+                </div>
+                <div className="flex justify-between items-center p-3 bg-muted/30 rounded-lg">
+                  <span className="text-sm text-muted-foreground">Spent Amount</span>
+                  <span className="font-mono font-semibold">{formatCurrency(engagement.spentAmount)}</span>
+                </div>
+                <div className="flex justify-between items-center p-3 bg-primary/10 rounded-lg">
+                  <span className="text-sm font-medium">Remaining Balance</span>
+                  <span className="font-mono font-semibold">
+                    {formatCurrency(engagement.escrowAmount - engagement.spentAmount)}
+                  </span>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -445,38 +488,50 @@ export default function EngagementDetail() {
         <TabsContent value="messages" className="space-y-6">
           <Card className="h-[500px] flex flex-col">
             <CardHeader>
-              <CardTitle>Encrypted Communication</CardTitle>
+              <CardTitle>Communication</CardTitle>
             </CardHeader>
             <CardContent className="flex-1 flex flex-col">
               <div className="flex-1 overflow-y-auto space-y-3 mb-4">
-                {messages.map((msg) => (
+                {engagement.messages.map((msg) => (
                   <div
-                    key={msg.id}
-                    className={`flex ${msg.sender === (userType === "Lawyer" ? "lawyer" : "client") ? "justify-end" : "justify-start"}`}
+                    key={Number(msg.id)}
+                    className={`flex ${msg.sender.toString() === principalId ? "justify-end" : "justify-start"}`}
                   >
                     <div
                       className={`max-w-[70%] p-3 rounded-lg ${
-                        msg.sender === (userType === "Lawyer" ? "lawyer" : "client")
+                        msg.sender.toString() === principalId
                           ? "bg-primary text-primary-foreground"
                           : "bg-muted"
                       }`}
                     >
                       <p className="text-sm">{msg.content}</p>
-                      <p className="text-xs opacity-70 mt-1">{formatTimeAgo(msg.timestamp)}</p>
+                      <p className="text-xs opacity-70 mt-1">{formatTimeAgo(Number(msg.timestamp))}</p>
                     </div>
                   </div>
                 ))}
+                {engagement.messages.length === 0 && (
+                  <p className="text-center text-muted-foreground py-8">No messages yet</p>
+                )}
               </div>
               <div className="flex gap-2">
                 <Input
                   placeholder="Type your message..."
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                  onKeyPress={(e) => e.key === "Enter" && !isSubmitting && handleSendMessage()}
                   data-testid="input-message"
+                  disabled={isSubmitting}
                 />
-                <Button onClick={handleSendMessage} data-testid="button-send-message">
-                  <Send className="h-4 w-4" />
+                <Button 
+                  onClick={handleSendMessage} 
+                  data-testid="button-send-message"
+                  disabled={isSubmitting || !newMessage.trim()}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
             </CardContent>

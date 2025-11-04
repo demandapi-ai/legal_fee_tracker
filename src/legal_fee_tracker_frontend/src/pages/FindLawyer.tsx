@@ -8,15 +8,20 @@ import { Skeleton } from "../components/ui/skeleton";
 import { Search, Star, MapPin, DollarSign } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { getInitials, formatCurrency } from "../lib/utils";
-import type { LawyerProfile } from "../shared/schema";
+import { getInitials } from "../lib/utils";
+import { UserManagement } from "../../../declarations/UserManagement";
+import type { LawyerProfile } from "../../../declarations/UserManagement/UserManagement.did";
 
 export default function FindLawyer() {
   const [, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
 
   const { data: lawyers = [], isLoading } = useQuery<LawyerProfile[]>({
-    queryKey: ["/api/lawyers"],
+    queryKey: ["lawyers"],
+    queryFn: async () => {
+      const result = await UserManagement.getAllLawyers();
+      return result;
+    },
   });
 
   const filteredLawyers = lawyers.filter(
@@ -25,6 +30,11 @@ export default function FindLawyer() {
       lawyer.specializations.some((s) => s.toLowerCase().includes(searchTerm.toLowerCase())) ||
       lawyer.jurisdiction.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const formatCurrency = (amount: [] | [bigint]) => {
+    if (amount.length === 0) return "N/A";
+    return `$${Number(amount[0])}`;
+  };
 
   return (
     <div className="space-y-8">
@@ -68,63 +78,68 @@ export default function FindLawyer() {
       ) : (
         <div className="grid gap-6 md:grid-cols-2">
           {filteredLawyers.map((lawyer) => (
-          <Card
-            key={lawyer.principal}
-            className="hover-elevate transition-all"
-            data-testid={`lawyer-card-${lawyer.principal}`}
-          >
-            <CardHeader>
-              <div className="flex items-start gap-4">
-                <Avatar className="h-16 w-16">
-                  <AvatarFallback className="text-lg">{getInitials(lawyer.name)}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <CardTitle className="mb-2">{lawyer.name}</CardTitle>
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <div className="flex items-center gap-1 text-sm">
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <span className="font-semibold">{lawyer.rating}</span>
-                      <span className="text-muted-foreground">({lawyer.reviewCount} reviews)</span>
+            <Card
+              key={lawyer.principal.toString()}
+              className="hover-elevate transition-all"
+              data-testid={`lawyer-card-${lawyer.principal.toString()}`}
+            >
+              <CardHeader>
+                <div className="flex items-start gap-4">
+                  <Avatar className="h-16 w-16">
+                    <AvatarFallback className="text-lg">{getInitials(lawyer.name)}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <CardTitle className="mb-2">{lawyer.name}</CardTitle>
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <div className="flex items-center gap-1 text-sm">
+                        <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                        <span className="font-semibold">{lawyer.rating.toFixed(1)}</span>
+                        <span className="text-muted-foreground">({Number(lawyer.reviewCount)} reviews)</span>
+                      </div>
+                      {lawyer.verified && (
+                        <Badge variant="default" className="text-xs">
+                          Verified
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <MapPin className="h-4 w-4" />
+                      <span>{lawyer.jurisdiction}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <MapPin className="h-4 w-4" />
-                    <span>{lawyer.jurisdiction}</span>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {lawyer.specializations.map((spec) => (
+                    <Badge key={spec} variant="secondary">
+                      {spec}
+                    </Badge>
+                  ))}
+                </div>
+
+                <p className="text-sm text-muted-foreground line-clamp-2">{lawyer.bio}</p>
+
+                <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-mono font-semibold">{formatCurrency(lawyer.hourlyRate)}/hr</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {Number(lawyer.completedEngagements)} completed cases
                   </div>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {lawyer.specializations.map((spec) => (
-                  <Badge key={spec} variant="secondary">
-                    {spec}
-                  </Badge>
-                ))}
-              </div>
 
-              <p className="text-sm text-muted-foreground line-clamp-2">{lawyer.bio}</p>
-
-              <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-mono font-semibold">{formatCurrency(lawyer.hourlyRate)}/hr</span>
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  {lawyer.completedEngagements} completed cases
-                </div>
-              </div>
-
-              <Button
-                className="w-full"
-                onClick={() => setLocation(`/engagement/create?lawyer=${lawyer.principal}`)}
-                data-testid={`button-request-engagement-${lawyer.principal}`}
-              >
-                Request Engagement
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
+                <Button
+                  className="w-full"
+                  onClick={() => setLocation(`/engagement/create?lawyer=${lawyer.principal.toString()}`)}
+                  data-testid={`button-request-engagement-${lawyer.principal.toString()}`}
+                >
+                  Request Engagement
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
 

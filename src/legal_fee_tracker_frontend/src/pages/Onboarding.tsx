@@ -2,9 +2,17 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Scale, User } from "lucide-react";
+import { useLocation } from "wouter";
 
 export default function Onboarding() {
   const [selectedType, setSelectedType] = useState<"lawyer" | "client" | null>(null);
+  const [, setLocation] = useLocation();
+
+  const handleContinue = () => {
+    if (selectedType) {
+      setLocation(`/profile/create/${selectedType}`);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
@@ -72,7 +80,7 @@ export default function Onboarding() {
           <div className="mt-8 text-center">
             <Button
               size="lg"
-              onClick={() => window.location.href = `/profile/create/${selectedType}`}
+              onClick={handleContinue}
               data-testid="button-continue-onboarding"
             >
               Continue as {selectedType === "lawyer" ? "Lawyer" : "Client"}

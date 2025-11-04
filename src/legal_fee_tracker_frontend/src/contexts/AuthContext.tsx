@@ -1,66 +1,76 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { AuthClient } from "@dfinity/auth-client";
+import type { Identity } from "@dfinity/agent";
 
-export type UserType = "Lawyer" | "Client" | null;
-
-interface AuthContextType {
+type AuthContextValue = {
+  authClient: AuthClient | null;
+  isReady: boolean;
   isAuthenticated: boolean;
-  userPrincipal: string | null;
-  userType: UserType;
-  login: (principal: string) => void;
-  logout: () => void;
-  setUserType: (type: UserType) => void;
-}
+  identity: Identity | null;
+  principalId: string | null;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
+};
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+const II_URL = import.meta.env.VITE_II_URL || "https://id.ai/";
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [authClient, setAuthClient] = useState<AuthClient | null>(null);
+  const [isReady, setIsReady] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userPrincipal, setUserPrincipal] = useState<string | null>(null);
-  const [userType, setUserTypeState] = useState<UserType>(null);
+  const [identity, setIdentity] = useState<Identity | null>(null);
+  const [principalId, setPrincipalId] = useState<string | null>(null);
 
   useEffect(() => {
-    const savedPrincipal = localStorage.getItem("userPrincipal");
-    const savedUserType = localStorage.getItem("userType") as UserType;
-    
-    if (savedPrincipal && savedUserType) {
-      setUserPrincipal(savedPrincipal);
-      setUserTypeState(savedUserType);
-      setIsAuthenticated(true);
-    }
+    (async () => {
+      const client = await AuthClient.create({
+        idleOptions: { idleTimeout: 30 * 60 * 1000, disableDefaultIdleCallback: true },
+      });
+      setAuthClient(client);
+
+      if (await client.isAuthenticated()) {
+        const id = client.getIdentity();
+        setIdentity(id);
+        setIsAuthenticated(true);
+        setPrincipalId(id.getPrincipal().toString());
+      }
+      setIsReady(true);
+    })();
   }, []);
 
-  const login = (principal: string) => {
-    setUserPrincipal(principal);
-    setIsAuthenticated(true);
-    localStorage.setItem("userPrincipal", principal);
+  const login = async () => {
+    if (!authClient) return;
+    await authClient.login({
+      identityProvider: II_URL,
+      onSuccess: () => {
+        const id = authClient.getIdentity();
+        setIdentity(id);
+        setIsAuthenticated(true);
+        setPrincipalId(id.getPrincipal().toString());
+      },
+    });
   };
 
-  const logout = () => {
-    setUserPrincipal(null);
-    setUserTypeState(null);
+  const logout = async () => {
+    if (!authClient) return;
+    await authClient.logout();
     setIsAuthenticated(false);
-    localStorage.removeItem("userPrincipal");
-    localStorage.removeItem("userType");
+    setIdentity(null);
+    setPrincipalId(null);
   };
 
-  const setUserType = (type: UserType) => {
-    setUserTypeState(type);
-    if (type) {
-      localStorage.setItem("userType", type);
-    }
-  };
-
-  return (
-    <AuthContext.Provider value={{ isAuthenticated, userPrincipal, userType, login, logout, setUserType }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo<AuthContextValue>(
+    () => ({ authClient, isReady, isAuthenticated, identity, principalId, login, logout }),
+    [authClient, isReady, isAuthenticated, identity, principalId]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within <AuthProvider>");
+  return ctx;
 }

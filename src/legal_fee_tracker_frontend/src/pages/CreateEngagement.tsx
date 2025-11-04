@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
@@ -9,24 +8,44 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 import { Progress } from "../components/ui/progress";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { createEngagementSchema, type CreateEngagement, type Milestone } from "../shared/schema";
-import { useLocation } from "wouter";
-import { formatCurrency } from "../lib/utils";
+import { useLocation, useSearch } from "wouter";
+import { useAuth } from "../contexts/AuthContext";
+import { UserEngagement } from "../../../declarations/UserEngagement";
+import type { CreateEngagementArgs, EngagementType, Milestone } from "../../../declarations/UserEngagement/UserEngagement.did";
+import { Principal } from "@dfinity/principal";
+
+type FormData = {
+  title: string;
+  description: string;
+  escrowAmount: number;
+};
+
+type MilestoneForm = {
+  description: string;
+  amount: number;
+  dueDate?: number;
+};
 
 export default function CreateEngagement() {
   const [, setLocation] = useLocation();
+  const searchParams = useSearch();
+  const { principalId, identity } = useAuth();
+  
+  // Extract lawyer principal from URL query params
+  const lawyerPrincipal = new URLSearchParams(searchParams).get("lawyer");
+  
   const [step, setStep] = useState(1);
   const [engagementTypeSelected, setEngagementTypeSelected] = useState<"Hourly" | "FixedFee" | "Milestone">("Hourly");
-  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [milestones, setMilestones] = useState<MilestoneForm[]>([]);
+  const [hourlyRate, setHourlyRate] = useState<number>(0);
+  const [fixedFeeAmount, setFixedFeeAmount] = useState<number>(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const form = useForm<CreateEngagement>({
-    resolver: zodResolver(createEngagementSchema),
+  const form = useForm<FormData>({
     defaultValues: {
       title: "",
       description: "",
-      lawyer: "lawyer1",
-      client: "client1",
-      engagementType: { type: "Hourly", rate: 0 },
       escrowAmount: 0,
     },
   });
@@ -38,15 +57,14 @@ export default function CreateEngagement() {
     setMilestones([
       ...milestones,
       {
-        id: milestones.length,
         description: "",
         amount: 0,
-        status: "Pending",
+        dueDate: undefined,
       },
     ]);
   };
 
-  const updateMilestone = (index: number, field: keyof Milestone, value: any) => {
+  const updateMilestone = (index: number, field: keyof MilestoneForm, value: any) => {
     const updated = [...milestones];
     updated[index] = { ...updated[index], [field]: value };
     setMilestones(updated);
@@ -56,8 +74,81 @@ export default function CreateEngagement() {
     setMilestones(milestones.filter((_, i) => i !== index));
   };
 
-  const onSubmit = () => {
-    setLocation("/dashboard");
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(amount);
+  };
+
+  const onSubmit = async (data: FormData) => {
+    if (!identity || !principalId || !lawyerPrincipal) {
+      setError("Missing required information. Please ensure you're logged in and have selected a lawyer.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const actor = UserEngagement;
+
+      // Build engagement type based on selection
+      let engagementType: EngagementType;
+      
+      if (engagementTypeSelected === "Hourly") {
+        engagementType = {
+          Hourly: {
+            rate: BigInt(Math.round(hourlyRate * 1000000)), // Convert to micro-units
+          }
+        };
+      } else if (engagementTypeSelected === "FixedFee") {
+        engagementType = {
+          FixedFee: {
+            amount: BigInt(Math.round(fixedFeeAmount * 1000000)),
+          }
+        };
+      } else {
+        // Milestone type
+        const milestonesFormatted: Milestone[] = milestones.map((m, idx) => ({
+          id: BigInt(idx),
+          description: m.description,
+          amount: BigInt(Math.round(m.amount * 1000000)),
+          status: { Pending: null },
+          dueDate: m.dueDate ? [BigInt(m.dueDate)] : [],
+          completedAt: [],
+        }));
+
+        engagementType = {
+          Milestone: {
+            milestones: milestonesFormatted,
+          }
+        };
+      }
+
+      const args: CreateEngagementArgs = {
+        title: data.title,
+        description: data.description,
+        lawyer: Principal.fromText(lawyerPrincipal),
+        client: Principal.fromText(principalId),
+        engagementType: engagementType,
+        escrowAmount: BigInt(Math.round(data.escrowAmount * 1000000)),
+      };
+
+      const result = await actor.createEngagement(args);
+
+      if ('err' in result) {
+        throw new Error(result.err);
+      }
+
+      // Success - navigate to dashboard
+      setLocation("/dashboard");
+    } catch (err) {
+      console.error("Error creating engagement:", err);
+      setError(err instanceof Error ? err.message : "Failed to create engagement");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const nextStep = () => {
@@ -84,6 +175,12 @@ export default function CreateEngagement() {
       </div>
 
       <Card className="p-8">
+        {error && (
+          <div className="mb-6 p-4 bg-destructive/10 border border-destructive rounded-md">
+            <p className="text-sm text-destructive">{error}</p>
+          </div>
+        )}
+
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             {step === 1 && (
@@ -179,12 +276,8 @@ export default function CreateEngagement() {
                     <Input
                       type="number"
                       placeholder="250"
-                      onChange={(e) =>
-                        form.setValue("engagementType", {
-                          type: "Hourly",
-                          rate: parseFloat(e.target.value) * 1000000,
-                        })
-                      }
+                      value={hourlyRate || ""}
+                      onChange={(e) => setHourlyRate(parseFloat(e.target.value) || 0)}
                       data-testid="input-hourly-rate"
                     />
                   </div>
@@ -196,12 +289,8 @@ export default function CreateEngagement() {
                     <Input
                       type="number"
                       placeholder="5000"
-                      onChange={(e) =>
-                        form.setValue("engagementType", {
-                          type: "FixedFee",
-                          amount: parseFloat(e.target.value) * 1000000,
-                        })
-                      }
+                      value={fixedFeeAmount || ""}
+                      onChange={(e) => setFixedFeeAmount(parseFloat(e.target.value) || 0)}
                       data-testid="input-fixed-amount"
                     />
                   </div>
@@ -228,7 +317,8 @@ export default function CreateEngagement() {
                             <Input
                               type="number"
                               placeholder="Amount (USD)"
-                              onChange={(e) => updateMilestone(index, "amount", parseFloat(e.target.value) * 1000000)}
+                              value={milestone.amount || ""}
+                              onChange={(e) => updateMilestone(index, "amount", parseFloat(e.target.value) || 0)}
                               data-testid={`input-milestone-amount-${index}`}
                             />
                             <Button
@@ -264,7 +354,8 @@ export default function CreateEngagement() {
                           {...field}
                           type="number"
                           placeholder="2000"
-                          onChange={(e) => field.onChange(parseFloat(e.target.value) * 1000000)}
+                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                          value={field.value || ""}
                           data-testid="input-escrow-amount"
                         />
                       </FormControl>
@@ -306,6 +397,21 @@ export default function CreateEngagement() {
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Engagement Type</p>
                     <p className="font-semibold">{engagementTypeSelected}</p>
+                    {engagementTypeSelected === "Hourly" && (
+                      <p className="text-sm mt-1">{formatCurrency(hourlyRate)}/hr</p>
+                    )}
+                    {engagementTypeSelected === "FixedFee" && (
+                      <p className="text-sm mt-1">{formatCurrency(fixedFeeAmount)}</p>
+                    )}
+                    {engagementTypeSelected === "Milestone" && (
+                      <div className="mt-2 space-y-1">
+                        {milestones.map((m, idx) => (
+                          <p key={idx} className="text-sm">
+                            • {m.description}: {formatCurrency(m.amount)}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   
                   <div>
@@ -327,7 +433,13 @@ export default function CreateEngagement() {
 
             <div className="flex gap-4 pt-6">
               {step > 1 && (
-                <Button type="button" variant="outline" onClick={prevStep} data-testid="button-back">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={prevStep} 
+                  data-testid="button-back"
+                  disabled={isSubmitting}
+                >
                   <ChevronLeft className="mr-2 h-4 w-4" />
                   Back
                 </Button>
@@ -339,8 +451,13 @@ export default function CreateEngagement() {
                   <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
               ) : (
-                <Button type="submit" className="ml-auto" data-testid="button-create-engagement">
-                  Create Engagement
+                <Button 
+                  type="submit" 
+                  className="ml-auto" 
+                  data-testid="button-create-engagement"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? "Creating..." : "Create Engagement"}
                 </Button>
               )}
             </div>

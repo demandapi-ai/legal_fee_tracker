@@ -1,84 +1,140 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Plus, Briefcase, Clock, DollarSign, CheckCircle2 } from "lucide-react";
+import { Plus, Briefcase, Clock, DollarSign, CheckCircle2, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useAuth } from "../contexts/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatCurrency, formatTimeAgo } from "../lib/utils";
+import { UserEngagement } from "../../../declarations/UserEngagement";
+import type { Engagement } from "../../../declarations/UserEngagement/UserEngagement.did";
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
-  const { userType } = useAuth();
+  const { principalId } = useAuth();
+  const [engagements, setEngagements] = useState<Engagement[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadEngagements();
+  }, []);
+
+  const loadEngagements = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const actor = UserEngagement;
+      const result = await actor.getMyEngagements();
+      setEngagements(result);
+    } catch (err) {
+      console.error("Error loading engagements:", err);
+      setError(err instanceof Error ? err.message : "Failed to load engagements");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const getStatusString = (status: any): "Active" | "Completed" | "Paused" | "Cancelled" | "Disputed" | "Pending" => {
+    if ('Active' in status) return "Active";
+    if ('Completed' in status) return "Completed";
+    if ('Paused' in status) return "Paused";
+    if ('Cancelled' in status) return "Cancelled";
+    if ('Disputed' in status) return "Disputed";
+    return "Pending";
+  };
+
+  const userType = engagements.length > 0 && principalId
+    ? engagements[0].lawyer.toString() === principalId 
+      ? "Lawyer" 
+      : "Client"
+    : "Client";
+
+  const activeEngagements = engagements.filter(e => {
+    const status = getStatusString(e.status);
+    return status === "Active";
+  });
+
+  const pendingEngagements = engagements.filter(e => {
+    const status = getStatusString(e.status);
+    return status === "Paused" || e.timeEntries.some(entry => !entry.approved);
+  });
+
+  const completedEngagements = engagements.filter(e => {
+    const status = getStatusString(e.status);
+    return status === "Completed";
+  });
+
+  const totalEarned = engagements.reduce((sum, e) => sum + e.spentAmount, BigInt(0));
+  const totalHours = engagements.reduce((sum, e) => 
+    sum + e.timeEntries.reduce((h, entry) => h + entry.hours, 0), 0
+  );
+  const completedCount = completedEngagements.length;
+
+  const formatCurrencyValue = (amount: bigint) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(Number(amount) / 100);
+  };
 
   const stats = [
     {
       title: "Total Engagements",
-      value: "12",
+      value: engagements.length.toString(),
       icon: <Briefcase className="h-5 w-5" />,
-      trend: "+2 this month",
+      trend: `${activeEngagements.length} active`,
     },
     {
       title: "Active Cases",
-      value: "5",
+      value: activeEngagements.length.toString(),
       icon: <Clock className="h-5 w-5" />,
-      trend: "3 pending approval",
+      trend: `${pendingEngagements.length} pending approval`,
     },
     {
       title: userType === "Lawyer" ? "Total Earned" : "Total Spent",
-      value: formatCurrency(245000000000),
+      value: formatCurrencyValue(totalEarned),
       icon: <DollarSign className="h-5 w-5" />,
-      trend: "+$12,500 this month",
+      trend: `${totalHours.toFixed(1)} hours logged`,
     },
     {
       title: "Completed",
-      value: "7",
+      value: completedCount.toString(),
       icon: <CheckCircle2 className="h-5 w-5" />,
-      trend: "58% success rate",
+      trend: engagements.length > 0 
+        ? `${Math.round((completedCount / engagements.length) * 100)}% completion rate`
+        : "0% completion rate",
     },
   ];
 
-  const mockEngagements = [
-    {
-      id: "1",
-      title: "Contract Review for SaaS Agreement",
-      otherParty: userType === "Lawyer" ? "Tech Startup Inc." : "Sarah Johnson",
-      status: "Active" as const,
-      escrowBalance: 200000000000,
-      hoursLogged: 8.5,
-      lastUpdate: Date.now() * 1000000 - 3600000000000,
-    },
-    {
-      id: "2",
-      title: "Corporate Merger Documentation",
-      otherParty: userType === "Lawyer" ? "Global Corp" : "Michael Chen",
-      status: "Pending" as const,
-      escrowBalance: 500000000000,
-      hoursLogged: 0,
-      lastUpdate: Date.now() * 1000000 - 86400000000000,
-    },
-    {
-      id: "3",
-      title: "IP Licensing Agreement",
-      otherParty: userType === "Lawyer" ? "Innovation Labs" : "David Smith",
-      status: "Active" as const,
-      escrowBalance: 150000000000,
-      hoursLogged: 12.0,
-      lastUpdate: Date.now() * 1000000 - 7200000000000,
-    },
-  ];
+  const getEngagementHours = (engagement: Engagement) => {
+    return engagement.timeEntries.reduce((sum, entry) => sum + entry.hours, 0);
+  };
 
-  const completedEngagements = [
-    {
-      id: "4",
-      title: "Employment Contract Dispute Resolution",
-      otherParty: userType === "Lawyer" ? "ABC Company" : "Jennifer Williams",
-      status: "Completed" as const,
-      totalPaid: 350000000000,
-      completedDate: Date.now() * 1000000 - 604800000000000,
-    },
-  ];
+  const getOtherPartyName = (engagement: Engagement) => {
+    const otherPrincipal = userType === "Lawyer" ? engagement.client : engagement.lawyer;
+    return otherPrincipal.toString().slice(0, 8) + "...";
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-destructive mb-4">{error}</p>
+        <Button onClick={loadEngagements}>Try Again</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -118,9 +174,14 @@ export default function Dashboard() {
         </TabsList>
 
         <TabsContent value="active" className="space-y-4">
-          {mockEngagements
-            .filter((e) => e.status === "Active")
-            .map((engagement) => (
+          {activeEngagements.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <p className="text-muted-foreground">No active engagements</p>
+              </CardContent>
+            </Card>
+          ) : (
+            activeEngagements.map((engagement) => (
               <Card
                 key={engagement.id}
                 className="hover-elevate cursor-pointer transition-all"
@@ -132,36 +193,87 @@ export default function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <CardTitle className="mb-2">{engagement.title}</CardTitle>
                       <p className="text-sm text-muted-foreground">
-                        {userType === "Lawyer" ? "Client" : "Lawyer"}: {engagement.otherParty}
+                        {userType === "Lawyer" ? "Client" : "Lawyer"}: {getOtherPartyName(engagement)}
                       </p>
                     </div>
-                    <StatusBadge status={engagement.status} />
+                    <StatusBadge status={getStatusString(engagement.status)} />
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-3 gap-4">
                     <div>
                       <p className="text-sm text-muted-foreground mb-1">Escrow Balance</p>
-                      <p className="text-lg font-mono font-semibold">{formatCurrency(engagement.escrowBalance)}</p>
+                      <p className="text-lg font-mono font-semibold">
+                        {formatCurrencyValue(engagement.escrowAmount - engagement.spentAmount)}
+                      </p>
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground mb-1">Hours Logged</p>
-                      <p className="text-lg font-mono font-semibold">{engagement.hoursLogged}</p>
+                      <p className="text-lg font-mono font-semibold">
+                        {getEngagementHours(engagement).toFixed(1)}
+                      </p>
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground mb-1">Last Update</p>
-                      <p className="text-sm">{formatTimeAgo(engagement.lastUpdate)}</p>
+                      <p className="text-sm">{formatTimeAgo(Number(engagement.updatedAt))}</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            ))
+          )}
         </TabsContent>
 
         <TabsContent value="pending" className="space-y-4">
-          {mockEngagements
-            .filter((e) => e.status === "Pending")
-            .map((engagement) => (
+          {pendingEngagements.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <p className="text-muted-foreground">No pending approvals</p>
+              </CardContent>
+            </Card>
+          ) : (
+            pendingEngagements.map((engagement) => {
+              const unapprovedEntries = engagement.timeEntries.filter(e => !e.approved);
+              return (
+                <Card
+                  key={engagement.id}
+                  className="hover-elevate cursor-pointer transition-all"
+                  onClick={() => setLocation(`/engagement/${engagement.id}`)}
+                  data-testid={`engagement-card-${engagement.id}`}
+                >
+                  <CardHeader>
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <CardTitle className="mb-2">{engagement.title}</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          {userType === "Lawyer" ? "Client" : "Lawyer"}: {getOtherPartyName(engagement)}
+                        </p>
+                      </div>
+                      <StatusBadge status={getStatusString(engagement.status)} />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      {unapprovedEntries.length > 0 
+                        ? `${unapprovedEntries.length} time ${unapprovedEntries.length === 1 ? 'entry' : 'entries'} awaiting approval`
+                        : "Waiting for action"}
+                    </p>
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
+        </TabsContent>
+
+        <TabsContent value="completed" className="space-y-4">
+          {completedEngagements.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <p className="text-muted-foreground">No completed engagements</p>
+              </CardContent>
+            </Card>
+          ) : (
+            completedEngagements.map((engagement) => (
               <Card
                 key={engagement.id}
                 className="hover-elevate cursor-pointer transition-all"
@@ -173,54 +285,33 @@ export default function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <CardTitle className="mb-2">{engagement.title}</CardTitle>
                       <p className="text-sm text-muted-foreground">
-                        {userType === "Lawyer" ? "Client" : "Lawyer"}: {engagement.otherParty}
+                        {userType === "Lawyer" ? "Client" : "Lawyer"}: {getOtherPartyName(engagement)}
                       </p>
                     </div>
-                    <StatusBadge status={engagement.status} />
+                    <StatusBadge status={getStatusString(engagement.status)} />
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-muted-foreground">
-                    Waiting for {userType === "Lawyer" ? "client" : "lawyer"} confirmation
-                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Total Paid</p>
+                      <p className="text-lg font-mono font-semibold">
+                        {formatCurrencyValue(engagement.spentAmount)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Completed</p>
+                      <p className="text-sm">
+                        {engagement.completedAt && engagement.completedAt.length > 0
+                          ? formatTimeAgo(Number(engagement.completedAt[0]))
+                          : formatTimeAgo(Number(engagement.updatedAt))}
+                      </p>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
-            ))}
-        </TabsContent>
-
-        <TabsContent value="completed" className="space-y-4">
-          {completedEngagements.map((engagement) => (
-            <Card
-              key={engagement.id}
-              className="hover-elevate cursor-pointer transition-all"
-              onClick={() => setLocation(`/engagement/${engagement.id}`)}
-              data-testid={`engagement-card-${engagement.id}`}
-            >
-              <CardHeader>
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="mb-2">{engagement.title}</CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      {userType === "Lawyer" ? "Client" : "Lawyer"}: {engagement.otherParty}
-                    </p>
-                  </div>
-                  <StatusBadge status={engagement.status} />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Total Paid</p>
-                    <p className="text-lg font-mono font-semibold">{formatCurrency(engagement.totalPaid)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Completed</p>
-                    <p className="text-sm">{formatTimeAgo(engagement.completedDate)}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+            ))
+          )}
         </TabsContent>
       </Tabs>
     </div>

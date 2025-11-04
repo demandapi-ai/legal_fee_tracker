@@ -5,12 +5,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Badge } from "@/components/ui/badge";
-import { X, Copy, Check } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { X, Copy, Check, AlertCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { UserManagement } from "../../../declarations/UserManagement";
 import type { CreateLawyerProfileArgs, CreateClientProfileArgs } from "../../../declarations/UserManagement/UserManagement.did";
+import { Principal } from "@dfinity/principal";
 
 type LawyerFormData = {
   name: string;
@@ -31,14 +33,32 @@ type ClientFormData = {
 export default function ProfileCreate() {
   const { type } = useParams<{ type: "lawyer" | "client" }>();
   const [, setLocation] = useLocation();
-  const { identity, principalId } = useAuth();
+  const { identity, principalId, isAuthenticated } = useAuth();
   const [specializations, setSpecializations] = useState<string[]>([]);
   const [currentSpec, setCurrentSpec] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [authWarning, setAuthWarning] = useState<string | null>(null);
 
   const isLawyer = type === "lawyer";
+
+  // Check if principal is anonymous
+  const isAnonymousPrincipal = (principal: string | null): boolean => {
+    if (!principal) return true;
+    // Anonymous principal ID is "2vxsx-fae"
+    return principal === "2vxsx-fae" || principal.startsWith("2vxsx-fae");
+  };
+
+  useEffect(() => {
+    if (principalId) {
+      if (isAnonymousPrincipal(principalId)) {
+        setAuthWarning("⚠️ You are using an anonymous identity. Please log in with Internet Identity to create a profile.");
+      } else {
+        setAuthWarning(null);
+      }
+    }
+  }, [principalId]);
 
   const lawyerForm = useForm<LawyerFormData>({
     defaultValues: {
@@ -91,9 +111,27 @@ export default function ProfileCreate() {
     lawyerForm.setValue("specializations", updated);
   };
 
-  const onSubmitLawyer = async (data: LawyerFormData) => {
+  const validateAuthentication = (): boolean => {
     if (!identity) {
-      setError("Not authenticated. Please log in again.");
+      setError("Not authenticated. Please log in with Internet Identity.");
+      return false;
+    }
+
+    if (!principalId) {
+      setError("Principal ID not available. Please try logging in again.");
+      return false;
+    }
+
+    if (isAnonymousPrincipal(principalId)) {
+      setError("Cannot create profile with anonymous identity. Please log in with Internet Identity first.");
+      return false;
+    }
+
+    return true;
+  };
+
+  const onSubmitLawyer = async (data: LawyerFormData) => {
+    if (!validateAuthentication()) {
       return;
     }
 
@@ -103,6 +141,9 @@ export default function ProfileCreate() {
     try {
       const actor = UserManagement;
 
+      // Convert hourly rate to cents (multiply by 100) for storage as bigint
+      const hourlyRateInCents = data.hourlyRate ? BigInt(Math.round(data.hourlyRate * 100)) : undefined;
+
       const args: CreateLawyerProfileArgs = {
         name: data.name,
         email: data.email,
@@ -110,8 +151,11 @@ export default function ProfileCreate() {
         bio: data.bio,
         jurisdiction: data.jurisdiction,
         specializations: data.specializations,
-        hourlyRate: data.hourlyRate ? [BigInt(data.hourlyRate)] : [],
+        hourlyRate: hourlyRateInCents ? [hourlyRateInCents] : [],
       };
+
+      console.log("Creating lawyer profile with principal:", principalId);
+      console.log("Profile data:", args);
 
       const result = await actor.registerLawyer(args);
       
@@ -119,6 +163,7 @@ export default function ProfileCreate() {
         throw new Error(result.err);
       }
 
+      console.log("Profile created successfully:", result.ok);
       setLocation("/dashboard");
     } catch (err) {
       console.error("Error creating profile:", err);
@@ -129,8 +174,7 @@ export default function ProfileCreate() {
   };
 
   const onSubmitClient = async (data: ClientFormData) => {
-    if (!identity) {
-      setError("Not authenticated. Please log in again.");
+    if (!validateAuthentication()) {
       return;
     }
 
@@ -146,12 +190,16 @@ export default function ProfileCreate() {
         walletAddress: data.walletAddress,
       };
 
+      console.log("Creating client profile with principal:", principalId);
+      console.log("Profile data:", args);
+
       const result = await actor.registerClient(args);
       
       if ('err' in result) {
         throw new Error(result.err);
       }
 
+      console.log("Profile created successfully:", result.ok);
       setLocation("/dashboard");
     } catch (err) {
       console.error("Error creating profile:", err);
@@ -160,6 +208,9 @@ export default function ProfileCreate() {
       setIsSubmitting(false);
     }
   };
+
+  // Show authentication warning if using anonymous principal
+  const showAuthenticationAlert = authWarning || (!isAuthenticated && !principalId);
 
   return (
     <div className="min-h-screen bg-background py-12 px-6">
@@ -173,10 +224,27 @@ export default function ProfileCreate() {
           </p>
         </div>
 
+        {showAuthenticationAlert && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              {authWarning || "You must be logged in with Internet Identity to create a profile. Please log in first."}
+            </AlertDescription>
+          </Alert>
+        )}
+
         <Card className="p-8">
           {error && (
             <div className="mb-6 p-4 bg-destructive/10 border border-destructive rounded-md">
               <p className="text-sm text-destructive">{error}</p>
+            </div>
+          )}
+
+          {principalId && !isAnonymousPrincipal(principalId) && (
+            <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
+              <p className="text-sm text-green-800 dark:text-green-200">
+                ✓ Authenticated with Principal ID: <span className="font-mono">{principalId.slice(0, 12)}...</span>
+              </p>
             </div>
           )}
 
@@ -186,6 +254,7 @@ export default function ProfileCreate() {
                 <FormField
                   control={lawyerForm.control}
                   name="name"
+                  rules={{ required: "Name is required" }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Full Name</FormLabel>
@@ -200,6 +269,13 @@ export default function ProfileCreate() {
                 <FormField
                   control={lawyerForm.control}
                   name="email"
+                  rules={{ 
+                    required: "Email is required",
+                    pattern: {
+                      value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                      message: "Invalid email address"
+                    }
+                  }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Email Address</FormLabel>
@@ -224,7 +300,7 @@ export default function ProfileCreate() {
                             placeholder="Your principal ID" 
                             data-testid="input-wallet"
                             readOnly
-                            className="pr-10 bg-muted/50"
+                            className="pr-10 bg-muted/50 font-mono text-xs"
                           />
                           <Button
                             type="button"
@@ -249,6 +325,7 @@ export default function ProfileCreate() {
                 <FormField
                   control={lawyerForm.control}
                   name="jurisdiction"
+                  rules={{ required: "Jurisdiction is required" }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Jurisdiction</FormLabel>
@@ -301,7 +378,8 @@ export default function ProfileCreate() {
                         <Input
                           {...field}
                           type="number"
-                          placeholder="200"
+                          step="0.01"
+                          placeholder="200.00"
                           onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) : undefined)}
                           value={field.value || ""}
                           data-testid="input-hourly-rate"
@@ -315,6 +393,7 @@ export default function ProfileCreate() {
                 <FormField
                   control={lawyerForm.control}
                   name="bio"
+                  rules={{ required: "Bio is required" }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Professional Bio</FormLabel>
@@ -346,7 +425,7 @@ export default function ProfileCreate() {
                     type="submit" 
                     className="flex-1" 
                     data-testid="button-create-profile"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isAnonymousPrincipal(principalId)}
                   >
                     {isSubmitting ? "Creating..." : "Create Profile"}
                   </Button>
@@ -359,6 +438,7 @@ export default function ProfileCreate() {
                 <FormField
                   control={clientForm.control}
                   name="name"
+                  rules={{ required: "Name is required" }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Full Name</FormLabel>
@@ -373,6 +453,13 @@ export default function ProfileCreate() {
                 <FormField
                   control={clientForm.control}
                   name="email"
+                  rules={{ 
+                    required: "Email is required",
+                    pattern: {
+                      value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                      message: "Invalid email address"
+                    }
+                  }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Email Address</FormLabel>
@@ -397,7 +484,7 @@ export default function ProfileCreate() {
                             placeholder="Your principal ID" 
                             data-testid="input-wallet"
                             readOnly
-                            className="pr-10 bg-muted/50"
+                            className="pr-10 bg-muted/50 font-mono text-xs"
                           />
                           <Button
                             type="button"
@@ -434,7 +521,7 @@ export default function ProfileCreate() {
                     type="submit" 
                     className="flex-1" 
                     data-testid="button-create-profile"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isAnonymousPrincipal(principalId)}
                   >
                     {isSubmitting ? "Creating..." : "Create Profile"}
                   </Button>
