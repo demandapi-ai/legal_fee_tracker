@@ -1,4 +1,4 @@
-# Legal Fee Tracker: Transparent & Secure Legal Engagements on ICP
+# Legal Fee Tracker: Transparent & Secure Legal Engagements on ICP (Legal Tech Hackathon 2025)
 
 The Legal Fee Tracker is a groundbreaking decentralized application (dApp) built on the Internet Computer Protocol (ICP) designed to revolutionize how lawyers and clients manage their engagements. This platform offers unparalleled transparency, security, and trustlessness in legal fee tracking and financial agreements.
 
